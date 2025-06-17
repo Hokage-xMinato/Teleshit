@@ -258,7 +258,7 @@ def create_application() -> Application:
     ptb_application.add_handler(CommandHandler("start", start))
     ptb_application.add_handler(ChatJoinRequestHandler(handle_join_request))
     ptb_application.add_handler(MessageHandler(filters.CONTACT & filters.ChatType.PRIVATE, handle_contact_shared))
-    ptb_application.add_handler(MessageHandler(filters.TEXT & ChatType.PRIVATE, fallback_message_handler))
+    ptb_application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, fallback_message_handler))
 
     return ptb_application
 
