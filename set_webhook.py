@@ -1,8 +1,9 @@
 import asyncio
 import os
 import logging
+from telegram import Update # Import Update directly from telegram
 from telegram.ext import Application
-from telegram.constants import Update as TelegramUpdateType # Renamed Update for clarity
+# Removed: from telegram.constants import Update as TelegramUpdateType # Renamed Update for clarity
 from dotenv import load_dotenv
 
 # --- Configure Logging ---
