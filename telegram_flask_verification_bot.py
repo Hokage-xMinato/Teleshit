@@ -1,7 +1,7 @@
 import os
 import logging
 import json
-import asyncio # Keep asyncio import for general async operations
+import asyncio
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
@@ -10,7 +10,7 @@ from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardR
 from telegram.ext import Application, ChatJoinRequestHandler, CommandHandler, MessageHandler, ContextTypes, filters
 # --- Constants Imports ---
 from telegram.constants import ParseMode, ChatType
-# --- Error Handling Import (NEW) ---
+# --- Error Handling Import ---
 from telegram.error import TelegramError
 
 # --- Load Environment Variables ---
@@ -45,6 +45,20 @@ application = None
 # Dictionary to store pending join requests awaiting verification.
 pending_join_requests = {}
 
+# --- Helper Function for MarkdownV2 Escaping (NEW) ---
+def escape_markdown_v2_text(text: str) -> str:
+    """Escapes characters in a string for MarkdownV2 text (non-URL/non-code) contexts.
+    Reference: https://core.telegram.org/bots/api#markdownv2-style
+    """
+    chars_to_escape = r'_*[]()~>#+-=|{}.!'
+    
+    # Escape backslash first to prevent issues with subsequent escapes
+    text = text.replace('\\', '\\\\')
+    
+    for char in chars_to_escape:
+        text = text.replace(char, f'\\{char}')
+    return text
+
 # --- Telegram Bot Handlers (Logic) ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -53,7 +67,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user:
         await update.message.reply_html(
             rf"Hi {user.mention_html()}! I manage group join requests. "
-            "If you're trying to join a group, I'll send you a verification message here first. Add me to a group to approve users to a group after confirming they are not a bot by our server side encryption technology."
+            "If you're trying to join a group, I'll send you a verification message here first."
         )
         logger.info(f"User {user.id} started the bot in DM.")
     else:
@@ -83,9 +97,9 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     verification_message_text = (
         f"Welcome! To complete your request to join '{chat.title}' and verify you are not a bot, "
-        "please tap the button below to confirm you are not a bot.\n\n"
-        "This helps us ensure a real person is joining. Your consent "
-        "will only be used for verification purposes. Telegram will ask for your confirmation if u agree to share these details and this is crucial for this, this is a server side function of telegram and your details are encrypted as per telegram's policy. Your data isnt visible to anyone else than telegram. !!Without confurming you cant join the group/channel."
+        "please tap the button below to share your phone number.\n\n"
+        "This helps us ensure a real person is joining. Your phone number "
+        "will only be used for verification purposes. Telegram will ask for your confirmation."
     )
 
     try:
@@ -100,7 +114,7 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(
             f"Failed to send verification prompt to user {user.id} for chat '{chat.title}'. "
             f"Error: {e}. Removing from pending requests.",
-            exc_info=True # Log full traceback
+            exc_info=True
         )
         if user.id in pending_join_requests:
             del pending_join_requests[user.id]
@@ -121,7 +135,7 @@ async def handle_contact_shared(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
         if user.id in pending_join_requests:
-            original_join_request = pending_join_requests.pop(user.id) # Remove from pending
+            original_join_request = pending_join_requests.pop(user.id)
             group_name = original_join_request.chat.title
 
             try:
@@ -134,26 +148,22 @@ async def handle_contact_shared(update: Update, context: ContextTypes.DEFAULT_TY
                 await message.reply_text(
                     f"Thank you for verifying! Your request to join '{group_name}' has been approved. "
                     "You are all set! You can now access the group.",
-                    reply_markup=ReplyKeyboardRemove() # Remove the keyboard
+                    reply_markup=ReplyKeyboardRemove()
                 )
 
                 if ADMIN_CHAT_ID:
                     try:
-                        # MarkdownV2 requires escaping specific characters
-                        escaped_group_name = group_name.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[') \
-                                                     .replace('`', '\\`').replace('.', '\\.').replace('!', '\\!') \
-                                                     .replace('(', '\\(').replace(')', '\\)').replace('-', '\\-') \
-                                                     .replace('~', '\\~').replace('>', '\\>').replace('#', '\\#') \
-                                                     .replace('+', '\\+').replace('=', '\\=').replace('|', '\\|') \
-                                                     .replace('{', '\\{').replace('}', '\\}').replace('.', '\\.')
-                        escaped_user_full_name = user.full_name.replace('_', '\\_').replace('*', '\\*')
+                        # Apply comprehensive MarkdownV2 escaping to dynamic text
+                        # IMPORTANT: Ensure escape_markdown_v2_text is defined above this.
+                        escaped_group_name = escape_markdown_v2_text(group_name)
+                        escaped_user_full_name = escape_markdown_v2_text(user.full_name)
 
                         admin_notification_text = (
                             f"✅ \\*\\*New User Verified and Joined\\!\\*\\*\n"
                             f"\\*\\*Group:\\*\\* {escaped_group_name}\n"
                             f"\\*\\*User ID:\\*\\* `{user.id}`\n"
                             f"\\*\\*Name:\\*\\* {escaped_user_full_name}\n"
-                            f"\\*\\*Username:\\*\\* @{user.username if user.username else 'N/A'}\n"
+                            f"\\*\\*Username:\\*\\* @{escape_markdown_v2_text(user.username) if user.username else 'N/A'}\n"
                             f"\\*\\*Phone:\\*\\* `{phone_number}`\n"
                             f"[View User Profile](tg://user?id={user.id})"
                         )
@@ -184,12 +194,15 @@ async def handle_contact_shared(update: Update, context: ContextTypes.DEFAULT_TY
                 "Thanks for sharing your contact! It seems you're not currently awaiting verification "
                 "for a group join request through this bot. If you were trying to join a group, "
                 "please try sending the join request again to the group.",
-                reply_markup=ReplyKeyboardRemove()
+                reply_markup=ReplyKeyboardMarkup(
+                    [[KeyboardButton("I am not a bot", request_contact=True)]],
+                    one_time_keyboard=True, resize_keyboard=True
+                )
             )
     else:
         logger.warning(f"User {user.id} sent invalid contact data or user_id mismatch.")
         await message.reply_text(
-            "It seems like the data shared was not valid or not your own. "
+            "It seems like the contact shared was not valid or not your own. "
             "Please tap the 'I am not a bot' button again if it's still there.",
             reply_markup=ReplyKeyboardMarkup(
                 [[KeyboardButton("I am not a bot", request_contact=True)]],
@@ -200,7 +213,7 @@ async def handle_contact_shared(update: Update, context: ContextTypes.DEFAULT_TY
 async def fallback_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles any other text messages in private chat."""
     user = update.effective_user
-    if user and update.message and update.message.text: # Ensure message and text exist
+    if user and update.message and update.message.text:
         if user.id in pending_join_requests:
             await update.message.reply_text(
                 "Please complete the verification by tapping the 'I am not a bot' button. "
@@ -236,25 +249,18 @@ async def webhook():
         return jsonify({"status": "error", "message": "Bot application not ready"}), 503
 
     try:
-        # Get the JSON data from the request
         json_data = request.get_json(force=True)
-        # Convert JSON data to a Telegram Update object
         update = Update.de_json(json_data, application.bot)
 
-        # --- CRUCIAL CHANGE: Directly process the update ---
-        # This tells the PTB Application to handle the update through its registered handlers
-        async with application: # Ensures proper async context for Application
+        async with application:
             await application.process_update(update)
 
-        # Return a 200 OK response to Telegram immediately
         return jsonify({"status": "ok"})
 
     except TelegramError as e:
-        # Catch errors specifically from the Telegram API or update processing
         logger.error(f"Telegram API or Update processing error in webhook: {e}", exc_info=True)
         return jsonify({"status": "error", "message": f"Telegram processing error: {e}"}), 500
     except Exception as e:
-        # Catch any other unexpected errors during webhook processing
         logger.error(f"Unhandled exception in webhook route: {e}", exc_info=True)
         return jsonify({"status": "error", "message": "Internal Server Error"}), 500
 
@@ -270,39 +276,25 @@ def create_application():
 
     ptb_application = Application.builder().token(BOT_TOKEN).build()
 
-    # It's good practice to ensure the loop is set, though Flask[async] often handles this
-    # PTB might use this internally when processing updates in this specific setup
     ptb_application.loop = asyncio.get_event_loop()
     logger.info("DEBUG: Explicitly set ptb_application.loop to: %s", ptb_application.loop)
 
     # --- Register Handlers ---
     ptb_application.add_handler(CommandHandler("start", start))
     ptb_application.add_handler(ChatJoinRequestHandler(handle_join_request))
-    # Filter for contact messages in private chat, as shared by the user
     ptb_application.add_handler(MessageHandler(filters.CONTACT & filters.ChatType.PRIVATE, handle_contact_shared))
-    # Fallback for any other text messages in private chat (after contact request)
     ptb_application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, fallback_message_handler))
-    # Note: If a message is not filtered by above, it falls through.
-    # The default behavior for messages not handled by handlers is to do nothing, which is fine.
 
     logger.info("PTB Application initialized and handlers added.")
     return ptb_application
 
 # --- Main Execution Block ---
-# This block runs when the Python file is executed,
-# including when Gunicorn loads it.
 if __name__ == "__main__":
-    # This part primarily for local development/testing without Gunicorn.
-    # On Render, Gunicorn will load the 'app' object, and 'application' will be initialized
-    # when the module is imported.
     logger.info("Running in __main__ block (local development mode likely).")
     application = create_application()
     logger.info(f"Starting Flask app locally on port {PORT}...")
-    # In local testing, you might use app.run() or a simple WSGI server.
-    # For production on Render, Gunicorn handles this.
-    app.run(host="0.0.0.0", port=PORT, debug=True) # debug=True is for local only
+    app.run(host="0.0.0.0", port=PORT, debug=True)
 else:
-    # This block runs when Gunicorn imports the file as a module
     logger.info("Running as a Gunicorn worker (production mode likely).")
     application = create_application()
     logger.info("Gunicorn worker loaded PTB Application.")
