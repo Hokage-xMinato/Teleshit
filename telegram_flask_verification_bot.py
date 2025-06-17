@@ -67,7 +67,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user:
         await update.message.reply_html(
             rf"Hi {user.mention_html()}! I manage group join requests. "
-            "If you're trying to join a group, I'll send you a verification message here first."
+            "If you're trying to join a group, I'll send you a verification message here first to verify if u are a bot with our server side validation with no errors. You can use us in our group to prevent bot spams.🙂"
         )
         logger.info(f"User {user.id} started the bot in DM.")
     else:
@@ -97,9 +97,12 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     verification_message_text = (
         f"Welcome! To complete your request to join '{chat.title}' and verify you are not a bot, "
-        "please tap the button below to share your phone number.\n\n"
-        "This helps us ensure a real person is joining. Your phone number "
-        "will only be used for verification purposes. Telegram will ask for your confirmation."
+        "please tap the button below to share your details with telegram server.\n\n"
+        "This helps us ensure a real person is joining. Your data "
+        "will only be used for verification purposes via telegram servers. \n\n"
+        "Telegram will ask for your confirmation, but dont worry we respect telegram privacy policy and we dont have access to any of the data you share with telegram server. \n\n"
+        "We just revieve response that u are not a bot after confirmation. We dont collect or even take your data. No worries.\n\n"
+        "Click if you are not a bot"
     )
 
     try:
