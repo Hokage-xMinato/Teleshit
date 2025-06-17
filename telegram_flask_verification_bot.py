@@ -5,10 +5,9 @@ import asyncio
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove # Update is already imported here
 from telegram.ext import Application, ChatJoinRequestHandler, CommandHandler, MessageHandler, ContextTypes, filters
-from telegram.constants import ParseMode, Update as TelegramUpdateType # Renamed Update for clarity
-
+from telegram.constants import ParseMode # Only ParseMode is from constants
 # --- Load Environment Variables ---
 load_dotenv()
 
