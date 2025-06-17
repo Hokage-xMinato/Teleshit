@@ -52,7 +52,7 @@ async def set_telegram_webhook():
 
         logger.info(f"Attempting to set webhook to: {WEBHOOK_URL}")
         # Use TelegramUpdateType.ALL_TYPES for allowed_updates
-        await application.bot.set_webhook(url=WEBHOOK_URL, allowed_updates=TelegramUpdateType.ALL_TYPES)
+        await application.bot.set_webhook(url=WEBHOOK_URL, allowed_updates=Update.ALL_TYPES)
         logger.info(f"Webhook successfully set to: {WEBHOOK_URL}")
         logger.info(f"Verification URL: https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo")
     except Exception as e:
