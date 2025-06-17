@@ -1,13 +1,18 @@
 import os
 import logging
 import json
-import asyncio
+import asyncio # Keep asyncio import for general async operations
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove # Update is already imported here
+# --- Core Telegram Imports ---
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, ChatJoinRequestHandler, CommandHandler, MessageHandler, ContextTypes, filters
-from telegram.constants import ParseMode, ChatType # Only ParseMode is from constants
+# --- Constants Imports ---
+from telegram.constants import ParseMode, ChatType
+# --- Error Handling Import (NEW) ---
+from telegram.error import TelegramError
+
 # --- Load Environment Variables ---
 load_dotenv()
 
@@ -35,7 +40,7 @@ PORT = int(os.getenv("PORT", 5000))
 app = Flask(__name__)
 
 # --- Global Application Instance (will be initialized by create_application) ---
-application = None 
+application = None
 
 # Dictionary to store pending join requests awaiting verification.
 pending_join_requests = {}
@@ -65,7 +70,7 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"from user '{user.full_name}' (ID: {user.id}). Storing for verification."
     )
 
-    pending_join_requests[user.id] = chat_join_request 
+    pending_join_requests[user.id] = chat_join_request
 
     keyboard = [
         [KeyboardButton("I am not a bot", request_contact=True)]
@@ -207,131 +212,97 @@ async def fallback_message_handler(update: Update, context: ContextTypes.DEFAULT
                 )
             )
         else:
-            await update.message.reply_text("Hello! I'm here to help with group join requests. How can I assist you?")
-    elif user:
-        logger.warning(f"Received a non-text message from user {user.id} in fallback handler.")
-        await update.message.reply_text("I can only process text messages and contact shares. Please use the provided buttons.")
+            await update.message.reply_text(
+                "I'm designed to manage group join requests. Please send a join request to a group I manage, or type /start."
+            )
     else:
-        logger.warning("Received a message without effective user in fallback handler.")
-
-# --- Callbacks for Application Lifecycle (minimal/removed for webhook setup) ---
-# post_init_callback and post_shutdown_callback are not used for webhook setup anymore
-
-# --- Function to Create and Configure the PTB Application ---
-def create_application() -> Application:
-    """
-    Creates and configures the python-telegram-bot Application instance.
-    This is the "factory" function that Gunicorn will call implicitly when running.
-    """
-    if not BOT_TOKEN:
-        logger.critical("BOT_TOKEN is not set. Cannot create PTB Application.")
-        raise ValueError("BOT_TOKEN is not set. Please configure it in environment variables.")
-
-    logger.info(f"DEBUG: BOT_TOKEN (first 5 chars): {BOT_TOKEN[:5] if BOT_TOKEN else 'None'}")
-
-    # Build the application instance
-    ptb_application = Application.builder().token(BOT_TOKEN).arbitrary_callback_data(True).build()
-    
-    # --- Ensure an event loop is available for PTB's internal use ---
-    # This loop is for PTB's internal asynchronous operations, NOT for Flask
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    ptb_application.loop = loop
-    logger.info(f"DEBUG: Explicitly set ptb_application.loop to: {ptb_application.loop}")
-
-    # The post_init/post_shutdown warnings are expected but harmless now, as webhook is set externally.
-    # You can remove these debug prints/warnings if you find the logs too noisy.
-    post_init_attr = getattr(ptb_application, 'post_init', 'ATTRIBUTE_MISSING')
-    if post_init_attr == 'ATTRIBUTE_MISSING' or not callable(post_init_attr):
-        logger.warning(f"WARNING: ptb_application does not have a callable 'post_init' method as expected. "
-                        f"Value: {post_init_attr}. This is okay as webhook is set externally.")
-    # No registration of post_init_callback here
-
-    # No registration of post_shutdown_callback here
+        logger.warning(f"Received non-text message or message without text from user {user.id}")
 
 
-    # Register handlers
-    ptb_application.add_handler(CommandHandler("start", start))
-    ptb_application.add_handler(ChatJoinRequestHandler(handle_join_request))
-    ptb_application.add_handler(MessageHandler(filters.CONTACT & filters.ChatType.PRIVATE, handle_contact_shared))
-    ptb_application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, fallback_message_handler))
+# --- Flask Routes ---
 
-    return ptb_application
-
-# Initialize the global application instance
-# This is called once when the module is loaded by Gunicorn/Flask.
-application = create_application()
-
-
-# --- Flask Webhook Route ---
-@app.route('/webhook', methods=['POST'])
-async def webhook():
-    """Endpoint for Telegram to send updates."""
-    if request.method == "POST":
-        if not application:
-            logger.error("PTB Application not initialized when webhook received.")
-            return jsonify({"status": "error", "message": "Bot not ready"}), 503
-        try:
-            update_data_json = request.get_data().decode('utf-8')
-            # Use the renamed Update type from telegram.constants
-            await application.update_queue.put(Update.de_json(json.loads(update_data_json), application.bot))
-            return jsonify({"status": "ok"}), 200
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in webhook request: {e}", exc_info=True)
-            return jsonify({"status": "error", "message": "Invalid JSON payload"}), 400
-        except Exception as e:
-            logger.error(f"Error processing webhook update: {e}", exc_info=True)
-            return jsonify({"status": "error", "message": str(e)}), 500
-    return jsonify({"status": "Method Not Allowed"}), 405
-
-# --- Optional: Root Route for Flask (for health checks) ---
-@app.route('/', methods=['GET'])
-def root_route():
-    """Simple health check endpoint."""
+@app.route('/')
+async def root_route():
+    """Simple root route for health checks or basic info."""
     status_message = "Telegram Bot Webhook Listener is Live and Operational!"
     logger.info(f"Root route accessed. Status: {status_message}")
     return status_message, 200
 
-# --- Flask Server Startup (for local development ONLY) ---
-if __name__ == "__main__":
-    if not BOT_TOKEN:
-        print("CRITICAL ERROR: TELEGRAM_BOT_TOKEN environment variable is not set. Bot cannot start locally.")
-        exit(1)
-    
-    if not ADMIN_CHAT_ID:
-        print("WARNING: ADMIN_CHAT_ID environment variable is not set. Admin notifications will be skipped.")
-    else:
-        try:
-            _ = int(ADMIN_CHAT_ID) # Validate if it's an integer
-        except ValueError:
-            print(f"WARNING: ADMIN_CHAT_ID '{ADMIN_CHAT_ID}' is not a valid integer. Admin notifications may fail.")
-
-    logger.info("Starting local development server with PTB Application...")
-
-    async def run_local_webhook_server():
-        # Clear any old webhooks before starting local PTB webhook server
-        # This will require a temporary Application instance for webhook setting
-        local_app_builder = Application.builder().token(BOT_TOKEN).build()
-        await local_app_builder.bot.set_webhook(url="")
-        logger.info("Cleared any existing webhooks for local testing.")
-
-        webserver_port = PORT
-        logger.info(f"Local webserver for PTB starting on port {webserver_port}...")
-        
-        await application.run_webhook( # Use the globally defined 'application'
-            listen="0.0.0.0",
-            port=webserver_port,
-            url_path="/webhook",
-            webhook_url=WEBHOOK_URL # Use the locally determined WEBHOOK_URL
-        )
+@app.route('/webhook', methods=['POST'])
+async def webhook():
+    """Handles incoming Telegram webhook updates."""
+    if not application:
+        logger.error("Application instance not initialized when webhook received!")
+        return jsonify({"status": "error", "message": "Bot application not ready"}), 503
 
     try:
-        asyncio.run(run_local_webhook_server())
-    except KeyboardInterrupt:
-        logger.info("Local bot stopped by user.")
+        # Get the JSON data from the request
+        json_data = request.get_json(force=True)
+        # Convert JSON data to a Telegram Update object
+        update = Update.de_json(json_data, application.bot)
+
+        # --- CRUCIAL CHANGE: Directly process the update ---
+        # This tells the PTB Application to handle the update through its registered handlers
+        async with application: # Ensures proper async context for Application
+            await application.process_update(update)
+
+        # Return a 200 OK response to Telegram immediately
+        return jsonify({"status": "ok"})
+
+    except TelegramError as e:
+        # Catch errors specifically from the Telegram API or update processing
+        logger.error(f"Telegram API or Update processing error in webhook: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Telegram processing error: {e}"}), 500
     except Exception as e:
-        logger.error(f"Error running local bot: {e}", exc_info=True)
+        # Catch any other unexpected errors during webhook processing
+        logger.error(f"Unhandled exception in webhook route: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": "Internal Server Error"}), 500
+
+
+# --- Application Initialization ---
+
+def create_application():
+    """Creates and configures the PTB Application instance."""
+    logger.info("Initializing PTB Application...")
+    if not BOT_TOKEN:
+        logger.critical("TELEGRAM_BOT_TOKEN environment variable is not set!")
+        raise ValueError("TELEGRAM_BOT_TOKEN is required.")
+
+    ptb_application = Application.builder().token(BOT_TOKEN).build()
+
+    # It's good practice to ensure the loop is set, though Flask[async] often handles this
+    # PTB might use this internally when processing updates in this specific setup
+    ptb_application.loop = asyncio.get_event_loop()
+    logger.info("DEBUG: Explicitly set ptb_application.loop to: %s", ptb_application.loop)
+
+    # --- Register Handlers ---
+    ptb_application.add_handler(CommandHandler("start", start))
+    ptb_application.add_handler(ChatJoinRequestHandler(handle_join_request))
+    # Filter for contact messages in private chat, as shared by the user
+    ptb_application.add_handler(MessageHandler(filters.CONTACT & filters.ChatType.PRIVATE, handle_contact_shared))
+    # Fallback for any other text messages in private chat (after contact request)
+    ptb_application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, fallback_message_handler))
+    # Note: If a message is not filtered by above, it falls through.
+    # The default behavior for messages not handled by handlers is to do nothing, which is fine.
+
+    logger.info("PTB Application initialized and handlers added.")
+    return ptb_application
+
+# --- Main Execution Block ---
+# This block runs when the Python file is executed,
+# including when Gunicorn loads it.
+if __name__ == "__main__":
+    # This part primarily for local development/testing without Gunicorn.
+    # On Render, Gunicorn will load the 'app' object, and 'application' will be initialized
+    # when the module is imported.
+    logger.info("Running in __main__ block (local development mode likely).")
+    application = create_application()
+    logger.info(f"Starting Flask app locally on port {PORT}...")
+    # In local testing, you might use app.run() or a simple WSGI server.
+    # For production on Render, Gunicorn handles this.
+    app.run(host="0.0.0.0", port=PORT, debug=True) # debug=True is for local only
+else:
+    # This block runs when Gunicorn imports the file as a module
+    logger.info("Running as a Gunicorn worker (production mode likely).")
+    application = create_application()
+    logger.info("Gunicorn worker loaded PTB Application.")
