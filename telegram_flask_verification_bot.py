@@ -278,7 +278,7 @@ async def webhook():
         try:
             update_data_json = request.get_data().decode('utf-8')
             # Use the renamed Update type from telegram.constants
-            await application.update_queue.put(TelegramUpdateType.de_json(json.loads(update_data_json), application.bot))
+            await application.update_queue.put(Update.de_json(json.loads(update_data_json), application.bot))
             return jsonify({"status": "ok"}), 200
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in webhook request: {e}", exc_info=True)
